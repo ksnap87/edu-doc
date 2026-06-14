@@ -69,20 +69,38 @@
 
 <!-- ════════ 계산기 ════════ -->
 <section id="calc">
-  <h2>중도해지 정산 계산기</h2>
-  <div class="box yel">CE 에어컨(72개월) 예제 기준. 해지 회차·일자·받은 할인을 넣으면 5종 정산과 고객 순부담을 계산합니다. (원본 시트와 100% 일치 검증)</div>
+  <h2>정산 계산기</h2>
+  <div class="box yel">CE 에어컨(72개월) 예제 기준. 이벤트를 고르고 값을 넣으면 정산을 계산합니다. (중도해지·AS보상은 원본 100% 일치, 중도완납 완납금은 단수조정 ±100)</div>
   <div class="calc box">
-    <label>해지 회차 (1~72)</label>
-    <input id="month" type="number" min="1" max="72" value="37"/>
-    <label>해지 월 내 사용일수 (제품판정일 − 회차시작일)</label>
-    <input id="day" type="number" min="1" max="31" value="16"/>
-    <label>고객이 받고 있던 할인 (선택)</label>
-    <div class="chips" id="chips">
-      <span class="chip on" data-d="선납금">선납금(목돈)</span>
-      <span class="chip on" data-d="선납할인">선납할인</span>
-      <span class="chip" data-d="단품">단품할인</span>
-      <span class="chip on" data-d="결합">결합(다품목)</span>
+    <label>이벤트 종류</label>
+    <select id="ev" onchange="toggleEv()" style="padding:10px;font-size:15px;border:2px solid var(--bd);border-radius:8px;width:200px">
+      <option value="term">중도해지</option>
+      <option value="prepay">중도완납</option>
+      <option value="as">AS 미사용 보상</option>
+    </select>
+
+    <div id="g-term">
+      <label>해지 회차 (1~72)</label>
+      <input id="month" type="number" min="1" max="72" value="37"/>
+      <label>해지 월 내 사용일수 (제품판정일 − 회차시작일)</label>
+      <input id="day" type="number" min="1" max="31" value="16"/>
+      <label>고객이 받고 있던 할인 (선택)</label>
+      <div class="chips" id="chips">
+        <span class="chip on" data-d="선납금">선납금(목돈)</span>
+        <span class="chip on" data-d="선납할인">선납할인</span>
+        <span class="chip" data-d="단품">단품할인</span>
+        <span class="chip on" data-d="결합">결합(다품목)</span>
+      </div>
     </div>
+
+    <div id="g-as" style="display:none">
+      <label>AS 미사용 일수</label>
+      <input id="asdays" type="number" min="1" max="31" value="30"/>
+      <label>그 달의 총 일수</label>
+      <input id="asdim" type="number" min="28" max="31" value="31"/>
+      <div class="hint">보상은 기본 월구독료(163,300) 기준, 할인 무관, ROUNDUP(고객 유리).</div>
+    </div>
+
     <button class="gobtn" onclick="run()">계산하기</button>
   </div>
   <div id="out"></div>
@@ -147,40 +165,50 @@
 
 <script>
 /* ───────── 계산기 (Python solver 100% 일치 검증) ───────── */
-const C7=72,C8=2191,C14=11757600,C16=12933360;
+const C7=72,C8=2191,C13=10540800,C14=11757600,C15=163300,C16=12933360;
 const FINAL={선납금_Vminus:3528000,선납금_Vplus:3880800,선납할인:475200,단품:590400,결합:540000};
 const REG=100000;
-const rdown=(x,u)=>Math.floor(x/u)*u, rup=(x,u)=>Math.ceil(x/u)*u, won=v=>v.toLocaleString('ko-KR');
+const rdown=(x,u)=>Math.floor(x/u)*u, rup=(x,u)=>Math.ceil(x/u)*u, rnd=(x,u)=>Math.round(x/u)*u, won=v=>v.toLocaleString('ko-KR');
 function calendar(){const cal=[];let g=new Date(2025,8,12),h=new Date(2025,8,30);const dy=(a,b)=>Math.round((b-a)/864e5)+1;
   cal.push({h:new Date(h),days:dy(g,h)});
   for(let k=2;k<=C7;k++){g=new Date(h.getFullYear(),h.getMonth()+1,1);h=new Date(g.getFullYear(),g.getMonth()+1,0);cal.push({h:new Date(h),days:dy(g,h)});}return cal;}
 const CAL=calendar();
+function elapsedDays(month,day){let s=day;for(let i=0;i<month-1;i++)s+=CAL[i].days;return s;}
 function reflected(d){let b=C14;if(d.has('선납금'))b-=FINAL.선납금_Vplus/1.1;for(const k of['선납할인','단품','결합'])if(d.has(k))b-=FINAL[k];return Math.round(b/C7);}
-function solve(month,day,arr){const d=new Set(arr),row=CAL[month-1],dim=row.h.getDate();
-  let sumW=day;for(let i=0;i<month-1;i++)sumW+=CAL[i].days;
-  const remain=(C8-sumW)/C8,elapsed=sumW/C8,R=reflected(d);
+function solveTerm(month,day,arr){const d=new Set(arr),dim=CAL[month-1].h.getDate();
+  const sumW=elapsedDays(month,day),remain=(C8-sumW)/C8,elapsed=sumW/C8,R=reflected(d);
   const 위약금=rdown(C16*remain*0.20,10),사용분=rdown(R*day/dim,100);
   let 할인회수=0;for(const k of['선납할인','단품','결합'])if(d.has(k))할인회수+=rdown(FINAL[k]*elapsed,100);
   const 선납환불=d.has('선납금')?-rup(FINAL.선납금_Vminus*remain,100):0, 등록비=rdown(REG/1.1*elapsed,100);
-  return{sumW,R,remain,elapsed,위약금,사용분,할인회수,선납환불,등록비,net:위약금+사용분+할인회수+선납환불+등록비};}
+  return{sumW,R,remain,위약금,사용분,할인회수,선납환불,등록비,net:위약금+사용분+할인회수+선납환불+등록비};}
+function solvePrepay(month,day,arr){const d=new Set(arr),dim=CAL[month-1].h.getDate();
+  const sumW=elapsedDays(month,day),remain=(C8-sumW)/C8,R=reflected(d);
+  const 완납금=rnd(C13*remain,100),사용분=rdown(R*day/dim,100);
+  const 선납차감=d.has('선납금')?-rup(FINAL.선납금_Vminus*remain,100):0;
+  return{sumW,R,remain,완납금,사용분,선납차감,net:완납금+사용분+선납차감};}
+function rows2tbl(rows,foot){const sign=v=>v<0?'<span class="neg">'+won(v)+'</span>':won(v);
+  return `<div class="box"><table class="res"><tr><th>정산 항목</th><th>금액(원)</th><th>방향</th></tr>`+
+    rows.map(r=>`<tr><td>${r[0]}</td><td class="num">${sign(r[1])}</td><td class="arrow">${r[2]}</td></tr>`).join('')+
+    `</table><div class="hint">${foot}</div></div>`;}
 function run(){
+  const ev=document.getElementById('ev').value, out=document.getElementById('out');
+  if(ev==='as'){
+    const s=Math.max(1,+document.getElementById('asdays').value||1), dim=Math.max(28,+document.getElementById('asdim').value||31);
+    const 보상=rup(C15*s/dim,100);
+    out.innerHTML=rows2tbl([['AS 미사용 보상금',보상,'회사→고객(환급)']],`기본구독료 163,300 × ${s}/${dim}일, ROUNDUP`);return;}
   const m=Math.max(1,Math.min(72,+document.getElementById('month').value||1));
   const day=Math.max(1,Math.min(31,+document.getElementById('day').value||1));
   const arr=[...document.querySelectorAll('#chips .chip.on')].map(c=>c.dataset.d);
-  const r=solve(m,day,arr);
-  const sign=v=>v<0?'<span class="neg">'+won(v)+'</span>':won(v);
-  document.getElementById('out').innerHTML=`
-   <div class="box"><table class="res">
-     <tr><th>정산 항목</th><th>금액(원)</th><th>방향</th></tr>
-     <tr><td>① 위약금</td><td class="num">${won(r.위약금)}</td><td class="arrow">고객→회사</td></tr>
-     <tr><td>② 사용분 청구</td><td class="num">${won(r.사용분)}</td><td class="arrow">고객→회사</td></tr>
-     <tr><td>③ 할인금 회수</td><td class="num">${won(r.할인회수)}</td><td class="arrow">고객→회사</td></tr>
-     <tr><td>④ 선납잔액 환불</td><td class="num">${sign(r.선납환불)}</td><td class="arrow">회사→고객</td></tr>
-     <tr><td>⑤ 등록비 청구</td><td class="num">${won(r.등록비)}</td><td class="arrow">고객→회사</td></tr>
-     <tr><td><b>고객 순부담</b></td><td class="num net ${r.net<0?'neg':'pos'}">${won(r.net)}</td><td class="arrow">${r.net<0?'고객이 돌려받음':'고객이 더 냄'}</td></tr>
-   </table>
-   <div class="hint">Σ경과일 ${r.sumW}일 / 2191 · 잔여비율 ${(r.remain*100).toFixed(1)}% · 반영 월구독료 ${won(r.R)}원</div></div>`;
+  if(ev==='prepay'){const r=solvePrepay(m,day,arr);
+    out.innerHTML=rows2tbl([['① 중도완납금',r.완납금,'고객→회사'],['② 사용분 청구',r.사용분,'고객→회사'],['③ 선납액 차감',r.선납차감,'회사→고객'],['＝ 고객 부담합계',r.net,r.net<0?'고객이 돌려받음':'고객이 더 냄']],
+      `Σ경과일 ${r.sumW}/2191 · 미사용 ${(r.remain*100).toFixed(1)}% · 반영 월구독료 ${won(r.R)}원 · 완납금은 단수조정 ±100 가능`);return;}
+  const r=solveTerm(m,day,arr);
+  out.innerHTML=rows2tbl([['① 위약금',r.위약금,'고객→회사'],['② 사용분 청구',r.사용분,'고객→회사'],['③ 할인금 회수',r.할인회수,'고객→회사'],['④ 선납잔액 환불',r.선납환불,'회사→고객'],['⑤ 등록비 청구',r.등록비,'고객→회사'],['＝ 고객 순부담',r.net,r.net<0?'고객이 돌려받음':'고객이 더 냄']],
+    `Σ경과일 ${r.sumW}/2191 · 잔여비율 ${(r.remain*100).toFixed(1)}% · 반영 월구독료 ${won(r.R)}원`);
 }
+function toggleEv(){const ev=document.getElementById('ev').value;
+  document.getElementById('g-term').style.display=(ev==='as')?'none':'block';
+  document.getElementById('g-as').style.display=(ev==='as')?'block':'none';}
 document.querySelectorAll('#chips .chip').forEach(c=>c.onclick=()=>c.classList.toggle('on'));
 
 /* ───────── 네비 ───────── */
