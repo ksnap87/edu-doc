@@ -124,6 +124,33 @@ def baseline():
     return dict(name="할인전·선납반영전", receivable=receivable, pure=pure, H2=H2, F3=F3, F2=F2, rows=rows)
 
 
+def baseline_unrounded():
+    """단수조정(ROUND) 없는 이론 상각표 — 막달 잔액이 정확히 0, plug 불필요.
+    이해·모델링용. 단, 실제 청구서(라인별 100원)와는 일치하지 않는다."""
+    I = Inputs
+    pure = I.S2 - I.S5 - I.S6
+    receivable = min(I.S3, excel_pv(I.K / 12, I.N, -pure / I.N))
+    H2 = pure / I.N
+    F3 = excel_rate(I.N, -H2, receivable)
+    frac = I.days_num / I.days_den            # 27/31
+    rows = []
+    bal = receivable
+    # 1회차(부분월): 반올림 없음
+    i = bal * F3 * frac
+    e = -H2 * frac
+    f = bal + i + e
+    rows.append({"m": 1, "기초": bal, "이자": i, "리스료": e, "기말": f}); bal = f
+    # 2~N회차(full)
+    for m in range(2, I.N + 1):
+        i = bal * F3; e = -H2; f = bal + i + e
+        rows.append({"m": m, "기초": bal, "이자": i, "리스료": e, "기말": f}); bal = f
+    # N+1 stub = 첫달 남은 (1-frac) 분
+    i = bal * F3; e = -(H2 - H2 * frac); f = bal + i + e
+    rows.append({"m": I.N + 1, "기초": bal, "이자": i, "리스료": e, "기말": f}); bal = f
+    return dict(name="할인전·선납반영전 (단수조정 없음)", receivable=receivable, pure=pure,
+                H2=H2, F3=F3, F2=F3 * 12, rows=rows, final=bal)
+
+
 def with_prepay(prepay_final_v_minus=744_000.0):
     """시트18: 할인전, 선납반영 후 — 선납금이 채권·리스료를 줄이고 IRR 재계산"""
     I = Inputs
@@ -185,3 +212,11 @@ if __name__ == "__main__":
     show(b)
     show(p)
     print("\n핵심: 선납금(744,000)이 리스채권을 줄이면 → 리스료↓(116,000→103,600) → IRR 재계산.")
+
+    # 단수조정 없는 이론 상각표 — 막달 0 수렴 확인
+    u = baseline_unrounded()
+    print("\n[참고] 단수조정 없는 이론 상각표 (이해·모델링용)")
+    print(f"  1회차 기말={u['rows'][0]['기말']:,.2f}  (시트 반올림판 4,762,609와 약 0.4원 차이)")
+    print(f"  막달({u['rows'][-1]['m']}회차) 기말 잔액 = {u['final']:,.4f}  → plug 없이 정확히 0 ✅")
+    print("  · 이자=기초×월이자율, 리스료=116,000(부분월 ×27/31), ROUND 전부 제거")
+    print("  · 장점: 만기 0 자동·잡손익 없음 / 단점: 실제 청구서(라인별 100원)와 불일치")
